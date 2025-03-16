@@ -2,67 +2,38 @@ import asyncio
 import json
 from datetime import datetime
 from bleak import BleakClient
+from BSTBLESensorClient import *
 
 class App_BaroScale:
-    def __init__(self, config_file_name:str, dbg = False):
+    def __init__(self, clientBoard:str, dbg = False):
         self.dbg = dbg
-        self.config = self.__load_config(config_file_name)
+        self.__setup_ble(clientBoard)
 
-    def __load_config(self, config_file_name):
-        """Load configuration from a JSON file."""
-        with open(config_file_name, "r") as file:
-            return json.load(file)
+    def __setup_ble(self, clientBoard):
+        # Map board type to config file
+        config_files = {
+            "app3.x": "app_baro_scale_app3.x.json",
+            "nicla": "app_baro_scale_nicla.json"
+        }
 
-    def __notification_handler(self, sender, data):
-        """Handle notifications from the BLE device."""
-        try:
-            # Decode the received data
-            readstr = data.decode('utf-8')
-
-            # Get the current timestamp in the required format
-            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
-
-            sensor_name = self.config["sensor_name"]
-            # Format the data with the timestamp
-            formatted_data = f"{sensor_name}, {timestamp}, {readstr}"
-
-            # Print and write the formatted data
-            if self.config["print_raw_data"]:
-                print(f"{formatted_data}")
-            self.log_file.write(formatted_data + "\n")
-            self.log_file.flush()
-        except UnicodeDecodeError:
-            print(f"Decoding error for data: {data}")
-
-    async def __run(self):
-        async with BleakClient(self.config["mac_address"]) as client:
-            is_connected = await client.is_connected()
-            if self.dbg:
-                print(f"Connected: {is_connected}")
-
-            with open(self.config["log_file"], "w") as log_file:
-                self.log_file = log_file
-                # Start listening for notifications
-                await client.start_notify(self.config["rx_uuid"], lambda sender, data: self.__notification_handler(sender, data))
-                print("Notifications started. Press Ctrl+C to stop.")
-
-                try:
-                    while True:
-                        await asyncio.sleep(self.config["sleep_time"])
-                except KeyboardInterrupt:
-                    print("Exiting program.")
-                finally:
-                    await client.stop_notify(self.config["rx_uuid"])
-                    print("Notifications stopped.")
-
-    def startListeningLoop(self):
-        # Run the async BLE client
-        asyncio.run(self.__run())
+        config_file = config_files[clientBoard]
+        if clientBoard == "app3.x":
+            self.ble_client = App3X_BLEClient(config_file_name=config_file, dbg=self.dbg)
+        elif args.board == "nicla":
+            self.ble_client = NiclaSenseME_BLEClient(config_file_name=config_file, dbg=self.dbg)
+        else:
+            return
+        self.ble_client.configSensors()
+        self.ble_client.startListeningLoop()
 
 if __name__ == "__main__":
-    # Load configuration from JSON file
-    config_file = "app_baro_scale_app3.x.json"
-    app = App_BaroScale(config_file, dbg = True)
-    app.startListeningLoop()
+    parser = argparse.ArgumentParser(description="Connect to a BST Sensor Board via BLE")
+    parser.add_argument("-b", "--board", choices=["nicla", "app3.x"], required=True, help="Specify the BLE board: 'nicla' or 'app3.x'")
+    parser.add_argument("-v", "--verbose", action="store_true", help="Enable debug mode")
+
+    args = parser.parse_args()
+
+    app_baro_scale = App_BaroScale(clientBoard = args.board, dbg = args.verbose)
+
 
 

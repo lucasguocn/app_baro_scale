@@ -4,6 +4,8 @@ from datetime import datetime
 import struct
 import asyncio
 from bleak import BleakClient
+import argparse
+
 
 class BSTBLESensorClient(ABC):
     """Base class for BLE sensor clients."""
@@ -12,6 +14,7 @@ class BSTBLESensorClient(ABC):
         self.config = self.__load_config(config_file_name)
         self.config_file_name = config_file_name
         self.dbg = dbg
+        self.log_file = None  # Initialize log file attribute
 
     def __load_config(self, config_file_name):
         """Load configuration from a JSON file."""
@@ -31,9 +34,8 @@ class BSTBLESensorClient(ABC):
     def __notification_handler(self, sender, data):
         """Handle notifications from the BLE device."""
         try:
-            # Get the current timestamp in the required format
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
-            self.handle_data(sender, data, timestamp)  # Call the overridden method
+            self.handle_data(sender, data, timestamp)
         except UnicodeDecodeError:
             print(f"Decoding error for data: {data}")
 
@@ -43,26 +45,28 @@ class BSTBLESensorClient(ABC):
             if self.dbg:
                 print(f"Connected: {is_connected}")
 
-            timestamp = datetime.now().strftime("%Y-%m-%d %H-%M-%S.%f")[:-3]
-            log_file_name = timestamp + '-' + self.config["board_name"] + ".csv"
-            self.log_file_name = log_file_name
-            with open(log_file_name, "w") as log_file:
-                self.log_file = log_file
-                # Start listening for notifications
-                await client.start_notify(self.config["rx_uuid"], lambda sender, data: self.__notification_handler(sender, data))
-                print("Notifications started. Press Ctrl+C to stop.")
+            # Only create log file if logging is enabled
+            if self.config.get("log_data", False):
+                timestamp = datetime.now().strftime("%Y-%m-%d %H-%M-%S.%f")[:-3]
+                log_file_name = f"{timestamp}-{self.config['board_name']}.csv"
+                self.log_file = open(log_file_name, "w")
 
-                try:
-                    while True:
-                        await asyncio.sleep(self.config["sleep_time"])
-                except KeyboardInterrupt:
-                    print("Exiting program.")
-                finally:
-                    await client.stop_notify(self.config["rx_uuid"])
-                    print("Notifications stopped.")
+            await client.start_notify(self.config["rx_uuid"], lambda sender, data: self.__notification_handler(sender, data))
+            print("Notifications started. Press Ctrl+C to stop.")
+
+            try:
+                while True:
+                    await asyncio.sleep(self.config["sleep_time"])
+            except KeyboardInterrupt:
+                print("Exiting program.")
+            finally:
+                await client.stop_notify(self.config["rx_uuid"])
+                print("Notifications stopped.")
+                
+                if self.log_file:
+                    self.log_file.close()
 
     def startListeningLoop(self):
-        # Run the async BLE client
         asyncio.run(self.__run())
 
 
@@ -73,22 +77,20 @@ class App3X_BLEClient(BSTBLESensorClient):
         super().__init__(config_file_name, dbg)
 
     def configSensors(self):
-        print(f"[App3X_BLEClient] Configuring sensor using {self.config_file_name}...")
+        if self.dbg:
+            print(f"[App3X_BLEClient] Configuring sensor using {self.config_file_name}...")
 
     def handle_data(self, sender, data, timestamp):
-            # Decode the received data
-            readstr = data.decode('utf-8')
-            sensor_name = self.config["sensor_name"]
-            # Format the data with the timestamp
-            formatted_data = f"{sensor_name}, {timestamp}, {readstr}"
+        readstr = data.decode('utf-8')
+        sensor_name = self.config["sensor_name"]
+        formatted_data = f"{sensor_name}, {timestamp}, {readstr}"
 
-            # Print and write the formatted data
-            if self.config["print_raw_data"]:
-                print(f"{formatted_data}")
+        if self.config["print_raw_data"]:
+            print(formatted_data)
 
-            if self.config["log_data"]:
-                self.log_file.write(formatted_data + "\n")
-                self.log_file.flush()
+        if self.log_file:
+            self.log_file.write(formatted_data + "\n")
+            self.log_file.flush()
 
 
 class NiclaSenseME_BLEClient(BSTBLESensorClient):
@@ -98,31 +100,48 @@ class NiclaSenseME_BLEClient(BSTBLESensorClient):
         super().__init__(config_file_name, dbg)
 
     def configSensors(self):
-        print(f"[NiclaSenseME_BLEClient] Configuring sensor using {self.config_file_name}...")
+        if self.dbg:
+            print(f"[NiclaSenseME_BLEClient] Configuring sensor using {self.config_file_name}...")
 
     def handle_data(self, sender, data, timestamp):
         if self.dbg:
             print(f"data size: {len(data)}")
-        data[5] = 0
+
+        data = bytearray(data)  # Convert to mutable type
+        data[5] = 0  # Modify the byte array
+        
         (sid, sz, value) = struct.unpack("<BBI", data[0:6])
         value = value * 0.078125
-        readstr = value
         sensor_name = self.config["sensor_name"]
-        formatted_data = f"{sensor_name}, {timestamp}, {readstr:.2f}"
+        formatted_data = f"{sensor_name}, {timestamp}, {value:.2f}"
+
         if self.config["print_raw_data"]:
             print(formatted_data)
-        if self.config["log_data"]:
+
+        if self.log_file:
             self.log_file.write(formatted_data + "\n")
             self.log_file.flush()
 
 # Example Usage:
 if __name__ == "__main__":
-    # Uncomment to use App3X client
-     app3x_client = App3X_BLEClient(config_file_name="app_baro_scale_app3.x.json", dbg=True)
-     app3x_client.configSensors()
-     app3x_client.startListeningLoop()
+    parser = argparse.ArgumentParser(description="Connect to a BST Sensor Board via BLE")
+    parser.add_argument("-b", "--board", choices=["nicla", "app3.x"], required=True, help="Specify the BLE board: 'nicla' or 'app3.x'")
+    parser.add_argument("-v", "--verbose", action="store_true", help="Enable debug mode")
 
-    # nicla_client = NiclaSenseME_BLEClient(config_file_name="app_baro_scale_nicla.json", dbg=True)
-    # nicla_client.configSensors()  # Correct method name
-    #nicla_client.startListeningLoop()
+    args = parser.parse_args()
 
+    # Map board type to config file
+    config_files = {
+        "app3.x": "app_baro_scale_app3.x.json",
+        "nicla": "app_baro_scale_nicla.json"
+    }
+
+    config_file = config_files[args.board]
+
+    if args.board == "app3.x":
+        client = App3X_BLEClient(config_file_name=config_file, dbg=args.verbose)
+    elif args.board == "nicla":
+        client = NiclaSenseME_BLEClient(config_file_name=config_file, dbg=args.verbose)
+
+    client.configSensors()
+    client.startListeningLoop()
