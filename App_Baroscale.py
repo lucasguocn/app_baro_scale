@@ -7,20 +7,26 @@ from BSTBLESensorClient import *
 class App_BaroScale:
     def __init__(self, clientBoard:str, dbg = False):
         self.dbg = dbg
-        self.__setup_ble(clientBoard)
+        self.clientBoard = clientBoard
+        self.config = self.__load_config(clientBoard)
+        self.__setup_ble_client()
 
-    def __setup_ble(self, clientBoard):
+    def __load_config(self, clientBoard:str):
+        """Load configuration from a JSON file."""
         # Map board type to config file
         config_files = {
             "app3.x": "app_baro_scale_app3.x.json",
             "nicla": "app_baro_scale_nicla.json"
         }
+        config_file_name = config_files[clientBoard]
+        with open(config_file_name, "r") as file:
+            return json.load(file)
 
-        config_file = config_files[clientBoard]
-        if clientBoard == "app3.x":
-            self.ble_client = App3X_BLEClient(config_file_name=config_file, dbg=self.dbg)
-        elif args.board == "nicla":
-            self.ble_client = NiclaSenseME_BLEClient(config_file_name=config_file, dbg=self.dbg)
+    def __setup_ble_client(self):
+        if self.clientBoard == "app3.x":
+            self.ble_client = App3X_BLEClient(config=self.config, dbg=self.dbg)
+        elif self.clientBoard == "nicla":
+            self.ble_client = NiclaSenseME_BLEClient(config=self.config, dbg=self.dbg)
         else:
             return
         self.ble_client.configSensors()
@@ -34,6 +40,4 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     app_baro_scale = App_BaroScale(clientBoard = args.board, dbg = args.verbose)
-
-
 

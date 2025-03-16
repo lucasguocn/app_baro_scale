@@ -10,16 +10,10 @@ import argparse
 class BSTBLESensorClient(ABC):
     """Base class for BLE sensor clients."""
 
-    def __init__(self, config_file_name: str, dbg=False):
-        self.config = self.__load_config(config_file_name)
-        self.config_file_name = config_file_name
+    def __init__(self, config:dict, dbg=False):
+        self.config = config
         self.dbg = dbg
         self.log_file = None  # Initialize log file attribute
-
-    def __load_config(self, config_file_name):
-        """Load configuration from a JSON file."""
-        with open(config_file_name, "r") as file:
-            return json.load(file)
 
     @abstractmethod
     def configSensors(self):
@@ -73,12 +67,12 @@ class BSTBLESensorClient(ABC):
 class App3X_BLEClient(BSTBLESensorClient):
     """Implementation for App3X BLE Sensor Client."""
 
-    def __init__(self, config_file_name: str, dbg=False):
-        super().__init__(config_file_name, dbg)
+    def __init__(self, config: dict, dbg=False):
+        super().__init__(config, dbg)
 
     def configSensors(self):
         if self.dbg:
-            print(f"[App3X_BLEClient] Configuring sensor using {self.config_file_name}...")
+            print(f"[App3X_BLEClient] Configuring sensor...")
 
     def handle_data(self, sender, data, timestamp):
         readstr = data.decode('utf-8')
@@ -96,18 +90,18 @@ class App3X_BLEClient(BSTBLESensorClient):
 class NiclaSenseME_BLEClient(BSTBLESensorClient):
     """Implementation for Nicla Sense ME BLE Sensor Client."""
 
-    def __init__(self, config_file_name: str, dbg=False):
-        super().__init__(config_file_name, dbg)
+    def __init__(self, config: dict, dbg=False):
+        super().__init__(config, dbg)
 
     def configSensors(self):
         if self.dbg:
-            print(f"[NiclaSenseME_BLEClient] Configuring sensor using {self.config_file_name}...")
+            print(f"[NiclaSenseME_BLEClient] Configuring sensor...")
 
     def handle_data(self, sender, data, timestamp):
         if self.dbg:
             print(f"data size: {len(data)}")
 
-        data = bytearray(data)  # Convert to mutable type
+        data = bytearray(data)
         data[5] = 0  # Modify the byte array
         
         (sid, sz, value) = struct.unpack("<BBI", data[0:6])
@@ -137,11 +131,14 @@ if __name__ == "__main__":
     }
 
     config_file = config_files[args.board]
+    
+    with open(config_file, "r") as file:
+        config = json.load(file)
 
     if args.board == "app3.x":
-        client = App3X_BLEClient(config_file_name=config_file, dbg=args.verbose)
+        client = App3X_BLEClient(config=config, dbg=args.verbose)
     elif args.board == "nicla":
-        client = NiclaSenseME_BLEClient(config_file_name=config_file, dbg=args.verbose)
+        client = NiclaSenseME_BLEClient(config=config, dbg=args.verbose)
 
     client.configSensors()
     client.startListeningLoop()
