@@ -1,4 +1,9 @@
 from abc import ABC, abstractmethod
+import json
+from datetime import datetime
+import struct
+import asyncio
+from bleak import BleakClient
 
 class BSTBLESensorClient(ABC):
     """Base class for BLE sensor clients."""
@@ -19,20 +24,18 @@ class BSTBLESensorClient(ABC):
         pass
 
     @abstractmethod
-    def __handle_data(self, sender, data, timestamp):
+    def handle_data(self, sender, data, timestamp):
+        """Handle the received data."""
         pass
 
     def __notification_handler(self, sender, data):
         """Handle notifications from the BLE device."""
         try:
-
             # Get the current timestamp in the required format
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
-
-            self.__handle_data(sender, data, timestamp)
+            self.handle_data(sender, data, timestamp)  # Call the overridden method
         except UnicodeDecodeError:
             print(f"Decoding error for data: {data}")
-
 
     async def __run(self):
         async with BleakClient(self.config["mac_address"]) as client:
@@ -40,7 +43,10 @@ class BSTBLESensorClient(ABC):
             if self.dbg:
                 print(f"Connected: {is_connected}")
 
-            with open(self.config["log_file"], "w") as log_file:
+            timestamp = datetime.now().strftime("%Y-%m-%d %H-%M-%S.%f")[:-3]
+            log_file_name = timestamp + '-' + self.config["board_name"] + ".csv"
+            self.log_file_name = log_file_name
+            with open(log_file_name, "w") as log_file:
                 self.log_file = log_file
                 # Start listening for notifications
                 await client.start_notify(self.config["rx_uuid"], lambda sender, data: self.__notification_handler(sender, data))
@@ -69,7 +75,7 @@ class App3X_BLEClient(BSTBLESensorClient):
     def configSensors(self):
         print(f"[App3X_BLEClient] Configuring sensor using {self.config_file_name}...")
 
-    def __handle_data(self, sender, data, timestamp):
+    def handle_data(self, sender, data, timestamp):
             # Decode the received data
             readstr = data.decode('utf-8')
             sensor_name = self.config["sensor_name"]
@@ -94,26 +100,29 @@ class NiclaSenseME_BLEClient(BSTBLESensorClient):
     def configSensors(self):
         print(f"[NiclaSenseME_BLEClient] Configuring sensor using {self.config_file_name}...")
 
-    def __handle_data(self, sender, data, timestamp):
-        print(f"data size: {len(data)}")
+    def handle_data(self, sender, data, timestamp):
+        if self.dbg:
+            print(f"data size: {len(data)}")
         data[5] = 0
         (sid, sz, value) = struct.unpack("<BBI", data[0:6])
         value = value * 0.078125
         readstr = value
         sensor_name = self.config["sensor_name"]
         formatted_data = f"{sensor_name}, {timestamp}, {readstr:.2f}"
-        print(formatted_data)
+        if self.config["print_raw_data"]:
+            print(formatted_data)
         if self.config["log_data"]:
             self.log_file.write(formatted_data + "\n")
             self.log_file.flush()
 
 # Example Usage:
 if __name__ == "__main__":
-    #app3x_client = App3X_BLEClient(config_file_name="app3x_config.json", dbg=True)
-    #app3x_client.configSensor()
-    #app3x_client.startListeningLoop()
+    # Uncomment to use App3X client
+     app3x_client = App3X_BLEClient(config_file_name="app_baro_scale_app3.x.json", dbg=True)
+     app3x_client.configSensors()
+     app3x_client.startListeningLoop()
 
-    nicla_client = NiclaSenseME_BLEClient(config_file_name="nicla_config.json", dbg=True)
-    nicla_client.configSensor()
-    nicla_client.startListeningLoop()
+    # nicla_client = NiclaSenseME_BLEClient(config_file_name="app_baro_scale_nicla.json", dbg=True)
+    # nicla_client.configSensors()  # Correct method name
+    #nicla_client.startListeningLoop()
 
