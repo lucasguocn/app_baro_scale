@@ -51,7 +51,15 @@ class App_BaroScale:
 
     def __handle_data(self, sender, data, timestamp):
         if (self.clientBoardType == BSTSensorBoardType.APP3_X):
-            pass
+            line = data.decode('utf-8')
+            value_baro = float(line.split(",")[-2].strip())
+            pressure_data = {
+                "value":value_baro,
+                "timestamp": str(datetime.now())
+            }
+            topic_data = "bstsn/" + self.config["mac_address"] + "/data/pressure"
+            self.mqtt_client.publish(topic_data, pressure_data)
+
         elif (self.clientBoardType == BSTSensorBoardType.NICLA):
             pass
 
@@ -61,8 +69,8 @@ class App_BaroScale:
         elif self.clientBoardType == BSTSensorBoardType.NICLA:
             self.ble_client = NiclaSenseME_BLEClient(config=self.config, dbg=self.dbg)
         self.ble_client.configSensors()
+        self.ble_client.subscribe(self.__handle_data)
         self.ble_client.startListeningLoop()
-        self.ble_client.subscribe(__handle_data)
 
 
     def __cb_mqtt_app_baro_scale(self, topic, payload):
