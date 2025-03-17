@@ -6,6 +6,10 @@ from BSTBLESensorClient import *
 from SensorMQTTClient import *
 from enum import Enum
 
+class BSTSensorBoardType(Enum):
+    APP3_X = "app3.x"
+    NICLA = "nicla"
+
 class App_BaroScale:
     accepted_config_files = {
         "app3.x": "app_baro_scale_app3.x.json",
@@ -14,19 +18,24 @@ class App_BaroScale:
 
     def __init__(self, clientBoard:str, dbg = False):
         self.dbg = dbg
-        self.clientBoard = clientBoard
-        if clientBoard not in self.__class__.accepted_config_files:
+
+        if clientBoard == "app3.x":
+            self.clientBoardType = BSTSensorBoardType.APP3_X
+        elif clientBoard == "nicla":
+            self.clientBoardType = BSTSensorBoardType.NICLA
+        else:
             print(f"invalid board type: {clientBoard}")
             return
-        self.config = self.__load_config(clientBoard)
+
+        self.config = self.__load_config()
         self.__setup_msgn_client()
         self.__setup_ble_client()
 
-    def __load_config(self, clientBoard:str):
+    def __load_config(self):
         """Load configuration from a JSON file."""
         # Map board type to config file
         config_files = self.__class__.accepted_config_files
-        config_file_name = config_files[clientBoard]
+        config_file_name = config_files[self.clientBoardType.value]
         with open(config_file_name, "r") as file:
             return json.load(file)
 
@@ -40,18 +49,26 @@ class App_BaroScale:
     def __handler_tare(self, args:list = None)->int:
         return 0
 
+    def __handle_data(self, sender, data, timestamp):
+        if (self.clientBoardType == BSTSensorBoardType.APP3_X):
+            pass
+        elif (self.clientBoardType == BSTSensorBoardType.NICLA):
+            pass
+
     def __setup_ble_client(self):
-        if self.clientBoard == "app3.x":
+        if self.clientBoardType == BSTSensorBoardType.APP3_X:
             self.ble_client = App3X_BLEClient(config=self.config, dbg=self.dbg)
-        elif self.clientBoard == "nicla":
+        elif self.clientBoardType == BSTSensorBoardType.NICLA:
             self.ble_client = NiclaSenseME_BLEClient(config=self.config, dbg=self.dbg)
         self.ble_client.configSensors()
         self.ble_client.startListeningLoop()
+        self.ble_client.subscribe(__handle_data)
+
 
     def __cb_mqtt_app_baro_scale(self, topic, payload):
         print(f"App received message on [{topic}]: [{payload}]")
         #example valid message:
-        #topic:[nicla/44:4D/cmd]: 
+        #topic:[nicla/44:4D/cmd]:
         #payload:[{"_payload":{"payload":{"command":"calibrate_start","arg1":503},,"socketid":"IEI2qi-67j9Ex3-dAAAD"}}]
 
         cmd_handlers = {

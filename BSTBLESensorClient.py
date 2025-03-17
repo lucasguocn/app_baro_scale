@@ -14,22 +14,29 @@ class BSTBLESensorClient(ABC):
         self.config = config
         self.dbg = dbg
         self.log_file = None  # Initialize log file attribute
+        self.subscribers = []
 
     @abstractmethod
     def configSensors(self):
         """Configure the sensor."""
         pass
 
-    @abstractmethod
-    def handle_data(self, sender, data, timestamp):
+    def __handle_data(self, sender, data, timestamp):
         """Handle the received data."""
+        self._handle_data(sender, data, timestamp)
+        for ss in self.subscribers:
+            ss(sender, data, timestamp)
+            
+    
+    @abstractmethod
+    def _handle_data(self, sender, data, timestamp):
         pass
 
     def __notification_handler(self, sender, data):
         """Handle notifications from the BLE device."""
         try:
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
-            self.handle_data(sender, data, timestamp)
+            self.__handle_data(sender, data, timestamp)
         except UnicodeDecodeError:
             print(f"Decoding error for data: {data}")
 
@@ -62,6 +69,9 @@ class BSTBLESensorClient(ABC):
 
     def startListeningLoop(self):
         asyncio.run(self.__run())
+        
+    def subscribe(self, cb):
+        self.subscribers.append(cb)
 
 
 class App3X_BLEClient(BSTBLESensorClient):
@@ -74,7 +84,7 @@ class App3X_BLEClient(BSTBLESensorClient):
         if self.dbg:
             print(f"[App3X_BLEClient] Configuring sensor...")
 
-    def handle_data(self, sender, data, timestamp):
+    def _handle_data(self, sender, data, timestamp):
         readstr = data.decode('utf-8')
         sensor_name = self.config["sensor_name"]
         formatted_data = f"{sensor_name}, {timestamp}, {readstr}"
@@ -97,17 +107,20 @@ class NiclaSenseME_BLEClient(BSTBLESensorClient):
         if self.dbg:
             print(f"[NiclaSenseME_BLEClient] Configuring sensor...")
 
-    def handle_data(self, sender, data, timestamp):
+    def _handle_data(self, sender, data, timestamp):
         if self.dbg:
             print(f"data size: {len(data)}")
 
-        data = bytearray(data)
-        data[5] = 0  # Modify the byte array
-        
-        (sid, sz, value) = struct.unpack("<BBI", data[0:6])
-        value = value * 0.078125
-        sensor_name = self.config["sensor_name"]
-        formatted_data = f"{sensor_name}, {timestamp}, {value:.2f}"
+        if 129 == data[0]:
+            data = bytearray(data)
+            data[5] = 0  # Modify the byte array
+            
+            (sid, sz, value) = struct.unpack("<BBI", data[0:6])
+            value = value * 0.078125
+            sensor_name = self.config["sensor_name"]
+            formatted_data = f"{sensor_name}, {timestamp}, {value:.2f}"
+        else:
+            return
 
         if self.config["print_raw_data"]:
             print(formatted_data)
