@@ -5,6 +5,7 @@ from bleak import BleakClient
 from BSTBLESensorClient import *
 from SensorMQTTClient import *
 from enum import Enum
+from AlgoPressureToWeight import *
 
 class BSTSensorBoardType(Enum):
     APP3_X = "app3.x"
@@ -28,8 +29,15 @@ class App_BaroScale:
             return
 
         self.config = self.__load_config()
+
+        self.inCalibration = False
+        self.calib_target = 0
+        self.algoPTW = AlgoPressureToWeight()
+        self.__setup_misc()
         self.__setup_msgn_client()
         self.__setup_ble_client()
+        #end of function
+
 
     def __load_config(self):
         """Load configuration from a JSON file."""
@@ -39,27 +47,51 @@ class App_BaroScale:
         with open(config_file_name, "r") as file:
             return json.load(file)
 
+    def __setup_misc(self):
+        # Only create log file if logging is enabled
+        if self.config.get("log_data", False):
+            timestamp = datetime.now().strftime("%Y-%m-%d %H-%M-%S.%f")[:-3]
+            log_file_name = f"{timestamp}-{self.config['board_name']}.csv"
+            self.log_file = open(log_file_name, "w")
+    def __tear_down(self):
+        if self.log_file:
+            self.log_file.close()
 
     def __handler_calib_start(self, args:list = None)->int:
+        self.inCalibration = True
+        self.calib_target = args[0]
         return 0
 
     def __handler_calib_stop(self, args:list = None)->int:
+        self.inCalibration = False
         return 0
 
     def __handler_tare(self, args:list = None)->int:
+        self.inCalibration = True
+        self.calib_target = 0
         return 0
 
     def __handle_data(self, sender, data, timestamp):
         if (self.clientBoardType == BSTSensorBoardType.APP3_X):
             line = data.decode('utf-8')
             value_baro = float(line.split(",")[-2].strip())
+            sensor_name = self.config["sensor_name"]
+            formatted_data = f"{sensor_name}, {timestamp}, {line}"
+
+            if self.config["print_raw_data"]:
+                print(formatted_data)
+
+            if self.log_file:
+                self.log_file.write(formatted_data + "\n")
+                self.log_file.flush()
+
             pressure_data = {
                 "value":value_baro,
                 "timestamp": str(datetime.now())
             }
+
             topic_data = "bstsn/" + self.config["mac_address"] + "/data/pressure"
             self.mqtt_client.publish(topic_data, pressure_data)
-
         elif (self.clientBoardType == BSTSensorBoardType.NICLA):
             pass
 
@@ -80,9 +112,9 @@ class App_BaroScale:
         #payload:[{"_payload":{"payload":{"command":"calibrate_start","arg1":503},,"socketid":"IEI2qi-67j9Ex3-dAAAD"}}]
 
         cmd_handlers = {
-                "calibrate_start"   :{'cb':__handler_calib_start,   'num_args' : 1},
-                "calibrate_stop"    :{'cb':__handler_calib_stop,    'num_args' : 0},
-                "tare"              :{'cb':__handler_tare,          'num_args' : 0},
+                "calibrate_start"   :{'cb':self.__handler_calib_start,   'num_args' : 1},
+                "calibrate_stop"    :{'cb':self.__handler_calib_stop,    'num_args' : 0},
+                "tare"              :{'cb':self.__handler_tare,          'num_args' : 0},
                 }
         try:
             # Attempt to parse the JSON message
@@ -91,6 +123,7 @@ class App_BaroScale:
             # Safely extract the values
             command = data["_payload"]["payload"].get("command", None)
             arg1 = data["_payload"]["payload"].get("arg1", None)
+            args = [arg1]
 
             if self.dbg:
                 print("command:", command)
@@ -98,6 +131,9 @@ class App_BaroScale:
 
             if command in cmd_handlers:
                 num_args = cmd_handlers[command].get('num_args', 0)
+
+                cb = cmd_handlers[command]['cb']
+                cb(args)
 
         except json.JSONDecodeError:
             print("Error: Received an invalid JSON message")

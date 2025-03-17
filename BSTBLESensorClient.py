@@ -13,7 +13,6 @@ class BSTBLESensorClient(ABC):
     def __init__(self, config:dict, dbg=False):
         self.config = config
         self.dbg = dbg
-        self.log_file = None  # Initialize log file attribute
         self.subscribers = []
 
     @abstractmethod
@@ -23,13 +22,15 @@ class BSTBLESensorClient(ABC):
 
     def __handle_data(self, sender, data, timestamp):
         """Handle the received data."""
-        self._handle_data(sender, data, timestamp)
-        for ss in self.subscribers:
-            ss(sender, data, timestamp)
+        if len(self.subscribers) > 0:
+            for ss in self.subscribers:
+                ss(sender, data, timestamp)
+        else:
+            self._handle_data_dft(sender, data, timestamp)
             
     
     @abstractmethod
-    def _handle_data(self, sender, data, timestamp):
+    def _handle_data_dft(self, sender, data, timestamp):
         pass
 
     def __notification_handler(self, sender, data):
@@ -46,12 +47,6 @@ class BSTBLESensorClient(ABC):
             if self.dbg:
                 print(f"Connected: {is_connected}")
 
-            # Only create log file if logging is enabled
-            if self.config.get("log_data", False):
-                timestamp = datetime.now().strftime("%Y-%m-%d %H-%M-%S.%f")[:-3]
-                log_file_name = f"{timestamp}-{self.config['board_name']}.csv"
-                self.log_file = open(log_file_name, "w")
-
             await client.start_notify(self.config["rx_uuid"], lambda sender, data: self.__notification_handler(sender, data))
             print("Notifications started. Press Ctrl+C to stop.")
 
@@ -64,8 +59,6 @@ class BSTBLESensorClient(ABC):
                 await client.stop_notify(self.config["rx_uuid"])
                 print("Notifications stopped.")
                 
-                if self.log_file:
-                    self.log_file.close()
 
     def startListeningLoop(self):
         asyncio.run(self.__run())
@@ -84,17 +77,13 @@ class App3X_BLEClient(BSTBLESensorClient):
         if self.dbg:
             print(f"[App3X_BLEClient] Configuring sensor...")
 
-    def _handle_data(self, sender, data, timestamp):
+    def _handle_data_dft(self, sender, data, timestamp):
         readstr = data.decode('utf-8')
         sensor_name = self.config["sensor_name"]
         formatted_data = f"{sensor_name}, {timestamp}, {readstr}"
 
         if self.config["print_raw_data"]:
             print(formatted_data)
-
-        if self.log_file:
-            self.log_file.write(formatted_data + "\n")
-            self.log_file.flush()
 
 
 class NiclaSenseME_BLEClient(BSTBLESensorClient):
@@ -107,7 +96,7 @@ class NiclaSenseME_BLEClient(BSTBLESensorClient):
         if self.dbg:
             print(f"[NiclaSenseME_BLEClient] Configuring sensor...")
 
-    def _handle_data(self, sender, data, timestamp):
+    def _handle_data_dft(self, sender, data, timestamp):
         if self.dbg:
             print(f"data size: {len(data)}")
 
@@ -124,10 +113,6 @@ class NiclaSenseME_BLEClient(BSTBLESensorClient):
 
         if self.config["print_raw_data"]:
             print(formatted_data)
-
-        if self.log_file:
-            self.log_file.write(formatted_data + "\n")
-            self.log_file.flush()
 
 # Example Usage:
 if __name__ == "__main__":
