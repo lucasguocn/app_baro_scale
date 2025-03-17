@@ -3,6 +3,7 @@ import json
 import numpy as np
 import statistics
 from collections import deque
+from datetime import datetime
 #from sklearn.linear_model import LinearRegression
 from scipy.stats import linregress
 
@@ -70,8 +71,8 @@ class AlgoPressureToWeight:
                 weight = self.__predict(data_in)[0]
                 if self.dbg:
                     print(f"window event - stop, {seq_start}, {seq_stop}, {self.sum_diff}, {self.inCalibration}, {weight}")
-                for ss in self.subscribers:
-                    ss(weight)
+                for cb in self.subscribers:
+                    cb(weight, self.meta_info_p[self.idx_stop][0])
 
         self.idx_start = -1
         
@@ -109,11 +110,13 @@ class AlgoPressureToWeight:
             print("R-squared:", r_value**2)
             print("Standard Error:", std_err)
     def __predict(self, data_in):
-        data_out = self.model[0] * data_in + self.mode[1]
+        data_out = [self.model[0] * xi + self.model[1] for xi in data_in]
+
         return data_out
 
     def __updateDSFit(self):
         vector = (self.sum_diff, self.calib_target) 
+        found = False
         for i in range(len(self.dataset_fit)):
             if (self.dataset_fit[i][1] == vector[1]):
                 self.dataset_fit[i] = vector
@@ -122,7 +125,7 @@ class AlgoPressureToWeight:
         if not found:
             self.dataset_fit.append(vector)
                 
-        if dbg:
+        if self.dbg:
             print(f"data points so far:{len(self.dataset_fit)}")
         len_dps = len(self.dataset_fit)
         if len_dps >= 2:
@@ -130,8 +133,8 @@ class AlgoPressureToWeight:
 
         
 
-    def updateData(self, sensorType:str, val:float, timestmap_ms:int, seq:int = 0):
-        meta_info = (timestmap_ms, seq)
+    def updateData(self, sensorType:str, val:float, timestmap:datetime, seq:int = 0):
+        meta_info = (timestmap, seq)
         if sensorType[0] == 'p':
             self.dataset_p.append(val)
             self.meta_info_p.append(meta_info)
@@ -163,7 +166,8 @@ class AlgoPressureToWeight:
                     self.sum_diff = diff
                     if -1 == self.idx_start:
                         self.idx_start = len_p - 1
-                        print(f"ev_start: {seq}, {val}, {self.thres_n * self.std_dev}")
+                        if self.dbg:
+                            print(f"ev_start: {seq}, {val}, {self.thres_n * self.std_dev}")
                         self.__onWindowedEventStart()
                 else:
                     if self.idx_start != -1:

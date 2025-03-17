@@ -6,6 +6,6 @@
     "sensor_name": "bmp581",
     "log_data": true,
     "sleep_time": 0.02,
-    "print_raw_data": true
-
+    "print_raw_data": true,
+    "publish_raw_ata": false
 }
