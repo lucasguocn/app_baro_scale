@@ -32,7 +32,7 @@ class App_BaroScale:
 
         self.inCalibration = False
         self.calib_target = 0
-        self.algoPTW = AlgoPressureToWeight()
+        self.algoPTW = AlgoPressureToWeight(dbg = dbg)
         self.__setup_misc()
         self.__setup_msgn_client()
         self.__setup_ble_client()
