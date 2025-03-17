@@ -76,7 +76,7 @@ class App_BaroScale:
             line = data.decode('utf-8')
             value_baro = float(line.split(",")[-2].strip())
             sensor_name = self.config["sensor_name"]
-            formatted_data = f"{sensor_name}, {timestamp}, {line}"
+            formatted_data = f"{sensor_name}, {timestamp}, {self.inCalibration}, {self.calib_target}, {line}"
 
             if self.config["print_raw_data"]:
                 print(formatted_data)
