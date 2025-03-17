@@ -60,23 +60,30 @@ class App_BaroScale:
     def __handler_calib_start(self, args:list = None)->int:
         self.inCalibration = True
         self.calib_target = args[0]
+        self.algoPTW.updateCalibStatus(self.inCalibration, self.calib_target)
         return 0
 
     def __handler_calib_stop(self, args:list = None)->int:
         self.inCalibration = False
+        self.algoPTW.updateCalibStatus(self.inCalibration, self.calib_target)
         return 0
 
     def __handler_tare(self, args:list = None)->int:
         self.inCalibration = True
         self.calib_target = 0
+        self.algoPTW.updateCalibStatus(self.inCalibration, self.calib_target)
         return 0
 
     def __handle_data(self, sender, data, timestamp):
+        timestamp_str = timestamp.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+        timestamp_ms = int(timestamp.timestamp() * 1000)
         if (self.clientBoardType == BSTSensorBoardType.APP3_X):
             line = data.decode('utf-8')
-            value_baro = float(line.split(",")[-2].strip())
+            line_s = line.split(",")
+            value_baro = float(line_s[-2].strip())
+            value_temp = float(line_s[-1].strip())
             sensor_name = self.config["sensor_name"]
-            formatted_data = f"{sensor_name}, {timestamp}, {self.inCalibration}, {self.calib_target}, {line}"
+            formatted_data = f"{sensor_name}, {timestamp_str}, {self.inCalibration}, {self.calib_target}, {line}"
 
             if self.config["print_raw_data"]:
                 print(formatted_data)
@@ -87,11 +94,12 @@ class App_BaroScale:
 
             pressure_data = {
                 "value":value_baro,
-                "timestamp": str(datetime.now())
+                "timestamp": timestamp_ms
             }
 
             topic_data = "bstsn/" + self.config["mac_address"] + "/data/pressure"
             self.mqtt_client.publish(topic_data, pressure_data)
+            self.algoPTW.updateData('p', value_baro, timestamp_ms)
         elif (self.clientBoardType == BSTSensorBoardType.NICLA):
             pass
 

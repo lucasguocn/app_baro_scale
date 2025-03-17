@@ -36,7 +36,7 @@ class BSTBLESensorClient(ABC):
     def __notification_handler(self, sender, data):
         """Handle notifications from the BLE device."""
         try:
-            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+            timestamp = datetime.now()
             self.__handle_data(sender, data, timestamp)
         except UnicodeDecodeError:
             print(f"Decoding error for data: {data}")
@@ -80,7 +80,9 @@ class App3X_BLEClient(BSTBLESensorClient):
     def _handle_data_dft(self, sender, data, timestamp):
         readstr = data.decode('utf-8')
         sensor_name = self.config["sensor_name"]
-        formatted_data = f"{sensor_name}, {timestamp}, {readstr}"
+        
+        timestamp_str = timestamp.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+        formatted_data = f"{sensor_name}, {timestamp_str}, {readstr}"
 
         if self.config["print_raw_data"]:
             print(formatted_data)
@@ -100,6 +102,7 @@ class NiclaSenseME_BLEClient(BSTBLESensorClient):
         if self.dbg:
             print(f"data size: {len(data)}")
 
+        timestamp_str = timestamp.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
         if 129 == data[0]:
             data = bytearray(data)
             data[5] = 0  # Modify the byte array
@@ -107,7 +110,7 @@ class NiclaSenseME_BLEClient(BSTBLESensorClient):
             (sid, sz, value) = struct.unpack("<BBI", data[0:6])
             value = value * 0.078125
             sensor_name = self.config["sensor_name"]
-            formatted_data = f"{sensor_name}, {timestamp}, {value:.2f}"
+            formatted_data = f"{sensor_name}, {timestamp_str}, {value:.2f}"
         else:
             return
 
