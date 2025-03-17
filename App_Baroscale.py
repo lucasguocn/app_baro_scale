@@ -29,7 +29,7 @@ class App_BaroScale:
             return
 
         self.config = self.__load_config()
-
+        self.evCnt = 0
         self.inCalibration = False
         self.calib_target = 0
         self.algoPTW = AlgoPressureToWeight(dbg = dbg)
@@ -77,6 +77,7 @@ class App_BaroScale:
     def __handle_data(self, sender, data, timestamp):
         timestamp_str = timestamp.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
         timestamp_ms = int(timestamp.timestamp() * 1000)
+        self.evCnt += 1
         if (self.clientBoardType == BSTSensorBoardType.APP3_X):
             line = data.decode('utf-8')
             line_s = line.split(",")
@@ -84,24 +85,30 @@ class App_BaroScale:
             value_temp = float(line_s[-1].strip())
             sensor_name = self.config["sensor_name"]
             formatted_data = f"{sensor_name}, {timestamp_str}, {self.inCalibration}, {self.calib_target}, {line}"
-
-            if self.config["print_raw_data"]:
-                print(formatted_data)
-
-            if self.log_file:
-                self.log_file.write(formatted_data + "\n")
-                self.log_file.flush()
-
-            pressure_data = {
-                "value":value_baro,
-                "timestamp": timestamp_ms
-            }
-
-            topic_data = "bstsn/" + self.config["mac_address"] + "/data/pressure"
-            self.mqtt_client.publish(topic_data, pressure_data)
-            self.algoPTW.updateData('p', value_baro, timestamp_ms)
         elif (self.clientBoardType == BSTSensorBoardType.NICLA):
-            pass
+            data = bytearray(data)
+            data[5] = 0  # Modify the byte array
+            (sid, sz, value) = struct.unpack("<BBI", data[0:6])
+            if (sid == 129):
+                value_baro = value * 0.0078125
+                sensor_name = self.config["sensor_name"]
+                formatted_data = f"{sensor_name}, {timestamp_str}, {self.inCalibration}, {self.calib_target}, {self.evCnt}, {value_baro:.2f}"
+
+        if self.config["print_raw_data"]:
+            print(formatted_data)
+
+        if self.log_file:
+            self.log_file.write(formatted_data + "\n")
+            self.log_file.flush()
+
+        pressure_data = {
+            "value":value_baro,
+            "timestamp": timestamp_ms
+        }
+
+        topic_data = "bstsn/" + self.config["mac_address"] + "/data/pressure"
+        self.mqtt_client.publish(topic_data, pressure_data)
+        self.algoPTW.updateData('p', value_baro, timestamp_ms)
 
     def __setup_ble_client(self):
         if self.clientBoardType == BSTSensorBoardType.APP3_X:
