@@ -84,7 +84,7 @@ class App_BaroScale:
             value_baro = float(line_s[-2].strip())
             value_temp = float(line_s[-1].strip())
             sensor_name = self.config["sensor_name"]
-            formatted_data = f"{sensor_name}, {timestamp_str}, {self.inCalibration}, {self.calib_target}, {line}"
+            formatted_data = f"{self.evCnt}, {sensor_name}, {timestamp_str}, {self.inCalibration}, {self.calib_target}, {line}"
         elif (self.clientBoardType == BSTSensorBoardType.NICLA):
             data = bytearray(data)
             data[5] = 0  # Modify the byte array
@@ -92,7 +92,7 @@ class App_BaroScale:
             if (sid == 129):
                 value_baro = value * 0.0078125
                 sensor_name = self.config["sensor_name"]
-                formatted_data = f"{sensor_name}, {timestamp_str}, {self.inCalibration}, {self.calib_target}, {self.evCnt}, {value_baro:.2f}"
+                formatted_data = f"{self.evCnt}, {sensor_name}, {timestamp_str}, {self.inCalibration}, {self.calib_target}, {self.evCnt}, {value_baro:.2f}"
 
         if self.config["print_raw_data"]:
             print(formatted_data)
@@ -108,7 +108,7 @@ class App_BaroScale:
 
         topic_data = "bstsn/" + self.config["mac_address"] + "/data/pressure"
         self.mqtt_client.publish(topic_data, pressure_data)
-        self.algoPTW.updateData('p', value_baro, timestamp_ms)
+        self.algoPTW.updateData('p', value_baro, timestamp_ms, self.evCnt)
 
     def __setup_ble_client(self):
         if self.clientBoardType == BSTSensorBoardType.APP3_X:
