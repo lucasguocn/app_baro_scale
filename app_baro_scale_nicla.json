@@ -1,0 +1,11 @@
+{
+    "board_name": "Nicla Sense ME",
+    "mac_address": "E7:93:D1:C1:44:4D",
+    "tx_uuid": "",
+    "rx_uuid": "34C2E3BC-34AA-11EB-ADC1-0242AC120002",
+    "sensor_name": "bmp390",
+    "log_data": true,
+    "sleep_time": 0.02,
+    "print_raw_data": true
+
+}
