@@ -25,11 +25,11 @@ class AlgoPressureToWeight:
         if self.stddev_sample_sz < 30:
             self.stddev_sample_sz = 30
 
-        self.MAX_DATASET_LEN = 1000
+        self.MAX_DATASET_LEN = 200
 
         self.cfg = {
                 "thres_n": 3,
-                "settle_hold_dur": 2,
+                "settle_hold_dur": 15,
                 "feather_p": (5, 14),
                 "feather_n": (6, 3)
         }
@@ -68,6 +68,7 @@ class AlgoPressureToWeight:
         if self.dbg:
             print(f"window event - start, {seq_start}, {seq_stop}, {self.sum_diff}, {self.inCalibration}, {self.calib_target}")
         pass
+
     def __onWindowedEventStop(self):
         if self.dbg:
             seq_start = self.meta_info_p[self.idx_start][1]
@@ -81,19 +82,22 @@ class AlgoPressureToWeight:
             if self.sum_diff > 0:
                 weight = self.calib_target
             else:
-                weight = 0
-            self.weight_baseline =  weight
+                weight = 0  #force to be zero
             self.__updateDSFit()
         else:
             if self.model is not None:
                 data_in = [self.sum_diff]
-                weight = self.__predict(data_in)[0]
+                weight = self.__predict(data_in)[0] + self.weight_baseline
                 if self.dbg:
-                    print(f"window event - stop, {seq_start}, {seq_stop}, {self.sum_diff}, {self.inCalibration}, {weight}")
+                    print(f"window event - stop (predict), {seq_start}, {seq_stop}, {self.sum_diff}, {self.inCalibration}, {self.weight_baseline}, {weight}")
+            elif self.sum_diff < 0:
+                if self.__findDSFit():
+                    weight = 0
 
         if weight is not None:
             for cb in self.subscribers:
                 cb(weight, self.meta_info_p[self.idx_stop][0])
+            self.weight_baseline = weight
 
         self.idx_start = -1
 
@@ -120,6 +124,14 @@ class AlgoPressureToWeight:
         if self.dbg:
             print(f"window event - stop adj, {seq_start}, {seq_stop}, {self.sum_diff}, {self.inCalibration}, {self.calib_target}")
 
+    def __findDSFit(self):
+        for i in range(len(self.dataset_fit)):
+            delta = abs(abs(self.sum_diff) - self.dataset_fit[i][0])
+            if (delta < 0.2 * self.dataset_fit[i][0]):
+                if self.dbg:
+                    print(f"close to sth in the table")
+                return True
+        return False
 
     def __update_params_skl(self):
         data = self.dataset_fit
@@ -155,7 +167,7 @@ class AlgoPressureToWeight:
             print("R-squared:", r_value**2)
             print("Standard Error:", std_err)
     def __predict(self, data_in):
-        data_out = [self.model[0] * xi + self.model[1] + self.weight_baseline for xi in data_in]
+        data_out = [self.model[0] * xi + self.model[1] for xi in data_in]
 
         return data_out
 
