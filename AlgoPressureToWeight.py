@@ -15,6 +15,7 @@ class AlgoPressureToWeight:
         self.printData = printData
         self.inCalibration = False
         self.calib_target = 0
+        self.weight_baseline = 0
         self.std_dev = 1.34
         self.window_len = int(3 * sampleRate)
         if self.window_len < 30:
@@ -24,9 +25,14 @@ class AlgoPressureToWeight:
         if self.stddev_sample_sz < 30:
             self.stddev_sample_sz = 30
 
-        self.thres_n = 3
         self.MAX_DATASET_LEN = 1000
 
+        self.cfg = {
+                "thres_n": 3,
+                "settle_hold_dur": 2,
+                "feather_p": (5, 14),
+                "feather_n": (6, 3)
+        }
         self.dataset_fit = []
         self.dataset_p = []
         self.meta_info_p = []
@@ -47,6 +53,8 @@ class AlgoPressureToWeight:
             self.dataset_t = []
             self.meta_info_t = []
             self.sum_diff = 0
+            if self.calib_target < 1e-6:
+                self.weight_baseline = 0
 
         self.inCalibration = inCalibration
         self.calib_target = calib_target
@@ -61,29 +69,57 @@ class AlgoPressureToWeight:
             print(f"window event - start, {seq_start}, {seq_stop}, {self.sum_diff}, {self.inCalibration}, {self.calib_target}")
         pass
     def __onWindowedEventStop(self):
-        seq_start = self.meta_info_p[self.idx_start][1]
-        seq_stop = self.meta_info_p[self.idx_stop][1]
         if self.dbg:
+            seq_start = self.meta_info_p[self.idx_start][1]
+            seq_stop = self.meta_info_p[self.idx_stop][1]
             print(f"window event - stop, {seq_start}, {seq_stop}, {self.sum_diff}, {self.inCalibration}, {self.calib_target}")
 
-        if self.sum_diff > 0:
-            if self.inCalibration:
-                    self.__updateDSFit()
+        self.__adj_sel_window()
+
+        weight = None
+        if self.inCalibration:
+            if self.sum_diff > 0:
+                weight = self.calib_target
             else:
-                if self.model is not None:
-                    data_in = [self.sum_diff]
-                    weight = self.__predict(data_in)[0]
-                    if self.dbg:
-                        print(f"window event - stop, {seq_start}, {seq_stop}, {self.sum_diff}, {self.inCalibration}, {weight}")
-                    for cb in self.subscribers:
-                        cb(weight, self.meta_info_p[self.idx_stop][0])
+                weight = 0
+            self.weight_baseline =  weight
+            self.__updateDSFit()
         else:
-            if self.inCalibration:
-                pass
-            else:
-                pass
+            if self.model is not None:
+                data_in = [self.sum_diff]
+                weight = self.__predict(data_in)[0]
+                if self.dbg:
+                    print(f"window event - stop, {seq_start}, {seq_stop}, {self.sum_diff}, {self.inCalibration}, {weight}")
+
+        if weight is not None:
+            for cb in self.subscribers:
+                cb(weight, self.meta_info_p[self.idx_stop][0])
 
         self.idx_start = -1
+
+    def __adj_sel_window(self):
+        if self.sum_diff > 0:
+            idx_trigger = self.idx_start
+            self.idx_start = idx_trigger - self.cfg["feather_p"][0]
+            self.idx_stop = idx_trigger + self.cfg["feather_p"][1]
+        else:
+            idx_trigger = self.idx_start
+            self.idx_start = idx_trigger - self.cfg["feather_n"][0]
+            self.idx_stop = idx_trigger + self.cfg["feather_n"][1]
+        if self.idx_start < 0:
+            self.idx_start = 0
+        if self.idx_stop >= len(self.dataset_p):
+            self.idx_stop = -1
+
+        if self.idx_start < 0:
+            self.idx_start = 0
+
+        seq_start = self.meta_info_p[self.idx_start][1]
+        seq_stop = self.meta_info_p[self.idx_stop][1]
+        self.sum_diff = self.dataset_p[self.idx_stop] - self.dataset_p[self.idx_start]
+        if self.dbg:
+            print(f"window event - stop adj, {seq_start}, {seq_stop}, {self.sum_diff}, {self.inCalibration}, {self.calib_target}")
+
 
     def __update_params_skl(self):
         data = self.dataset_fit
@@ -119,16 +155,17 @@ class AlgoPressureToWeight:
             print("R-squared:", r_value**2)
             print("Standard Error:", std_err)
     def __predict(self, data_in):
-        data_out = [self.model[0] * xi + self.model[1] for xi in data_in]
+        data_out = [self.model[0] * xi + self.model[1] + self.weight_baseline for xi in data_in]
 
         return data_out
 
     def __updateDSFit(self):
-        vector = (self.sum_diff, self.calib_target)
+        vector = (abs(self.sum_diff), self.calib_target)
         found = False
         for i in range(len(self.dataset_fit)):
-            if (self.dataset_fit[i][1] == vector[1]):
-                self.dataset_fit[i] = vector
+            if (self.dataset_fit[i][1] == self.calib_target):
+                fea_in = (abs(self.sum_diff) + self.dataset_fit[i][0]) * 0.5
+                self.dataset_fit[i] = (fea_in, self.calib_target)
                 found = True
                 break
         if not found:
@@ -140,25 +177,36 @@ class AlgoPressureToWeight:
         if len_dps >= 2:
             self.__update_params_spy()
 
+    def __truncDataBuf(self):
+        len_p = len(self.dataset_p)
+        if len_p > self.MAX_DATASET_LEN:
+            headroom = 100
+            if self.idx_start > headroom:
+                start = self.idx_start - headroom
+                self.idx_start = headroom
+                self.dataset_p = self.dataset_p[start:]
+                self.meta_info_p = self.meta_info_p[start:]
+            else:
+                pass
 
     def updateData(self, sensorType:str, val:float, timestmap:datetime, seq:int = 0):
         meta_info = (timestmap, seq)
         if sensorType[0] == 'p':
             self.dataset_p.append(val)
             self.meta_info_p.append(meta_info)
-            len_p = len(self.dataset_p)
-            if len_p > self.MAX_DATASET_LEN:
-                self.dataset_p = self.dataset_p[-self.MAX_DATASET_LEN:]
-                len_p = len(self.dataset_p)
+            self.__truncDataBuf()
         elif sensorType[0] == 't':
             self.dataset_t.append(val)
             self.meta_info_t.append(meta_info)
             len_t = len(self.dataset_t)
             if len_t > self.MAX_DATASET_LEN:
                 self.dataset_t = self.dataset_t[-self.MAX_DATASET_LEN:]
+                self.meta_info_t = self.meta_info_t[-self.MAX_DATASET_LEN:]
                 len_t = len(self.dataset_t)
         else:
             return
+
+        len_p = len(self.dataset_p)
 
         if self.inCalibration and self.calib_target < 1e-6:
             #taring
@@ -170,17 +218,22 @@ class AlgoPressureToWeight:
         else:
             if len_p > 1:
                 diff = self.dataset_p[len_p - 1] - self.dataset_p[len_p - 2]
-                if abs(diff) > self.thres_n * self.std_dev:
+                if abs(diff) > self.cfg["thres_n"] * self.std_dev:
+                    self.settle_hold_cnt = 0
                     if -1 == self.idx_start:
                         self.idx_start = len_p - 1
                         self.sum_diff = diff
                         if self.dbg:
-                            print(f"ev_start: {seq}, {val}, {self.thres_n * self.std_dev}")
+                            print(f'ev_start: {seq}, {val}, {self.cfg["thres_n"] * self.std_dev}')
                         self.__onWindowedEventStart()
                     else:
                         self.sum_diff += diff
                 else:
-                    if self.idx_start != -1:
-                        self.idx_stop = len_p - 2
-                        self.__onWindowedEventStop()
+                    if -1 == self.idx_start:
+                        pass
+                    else:
+                        self.settle_hold_cnt += 1
+                        if self.settle_hold_cnt >= self.cfg["settle_hold_dur"]:
+                            self.idx_stop = len_p - 1
+                            self.__onWindowedEventStop()
 

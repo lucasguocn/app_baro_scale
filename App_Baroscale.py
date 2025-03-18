@@ -60,7 +60,7 @@ class App_BaroScale:
         if self.log_file:
             self.log_file.close()
 
-    def __cb_algo_event(self, weight, timestamp):
+    def __publish_weight(self, weight, timestamp):
         topic_data = "bstsn/" + self.config["mac_address"] + "/data/weight"
         timestamp_str = timestamp.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
         weight_data = {
@@ -68,6 +68,9 @@ class App_BaroScale:
             "timestamp": timestamp_str
         }
         self.mqtt_client.publish(topic_data, weight_data)
+        
+    def __cb_algo_event(self, weight, timestamp):
+        self.__publish_weight(weight, timestamp)
 
     def __handler_calib_start(self, args:list = None)->int:
         self.inCalibration = True
@@ -84,6 +87,7 @@ class App_BaroScale:
         self.inCalibration = True
         self.calib_target = 0
         self.algoPTW.updateCalibStatus(self.inCalibration, self.calib_target)
+        self.__publish_weight(0, datetime.now())
         return 0
 
     def __handle_data(self, sender, data, timestamp):
