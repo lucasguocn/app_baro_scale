@@ -31,7 +31,9 @@ class AlgoPressureToWeight:
                 "thres_n": 3,
                 "settle_hold_dur": 15,
                 "feather_p": (5, 14),
-                "feather_n": (6, 3)
+                "feather_n": (6, 3),
+                "error_tor":0.10,   #10%
+                "auto_tare": True,
         }
         self.dataset_fit = []
         self.dataset_p = []
@@ -45,6 +47,7 @@ class AlgoPressureToWeight:
         self.model = None
 
         self.subscribers = []
+        self.last_weight = (0, 0)
 
     def updateCalibStatus(self, inCalibration:bool = False, calib_target:float = 0.0):
         if (not self.inCalibration) and inCalibration:
@@ -52,6 +55,8 @@ class AlgoPressureToWeight:
             self.meta_info_p = []
             self.dataset_t = []
             self.meta_info_t = []
+            self.idx_start = -1
+            self.idx_stop = -1
             self.sum_diff = 0
             if self.calib_target < 1e-6:
                 self.weight_baseline = 0
@@ -87,12 +92,21 @@ class AlgoPressureToWeight:
         else:
             if self.model is not None:
                 data_in = [self.sum_diff]
-                weight = self.__predict(data_in)[0] + self.weight_baseline
+                if self.sum_diff > 0:
+                    weight = self.__predict(data_in)[0] + self.weight_baseline
+                else:
+                    if self.cfg["auto_tare"]:
+                        if self.__isLastWeightRemoved():
+                            weight = 0
+                    if weight is None:
+                        weight = self.__predict(data_in)[0] + self.weight_baseline
                 if self.dbg:
                     print(f"window event - stop (predict), {seq_start}, {seq_stop}, {self.sum_diff}, {self.inCalibration}, {self.weight_baseline}, {weight}")
             elif self.sum_diff < 0:
-                if self.__findDSFit():
+                if self.__isLastWeightRemoved():
                     weight = 0
+
+        self.last_weight = (self.sum_diff, weight)
 
         if weight is not None:
             for cb in self.subscribers:
@@ -124,12 +138,12 @@ class AlgoPressureToWeight:
         if self.dbg:
             print(f"window event - stop adj, {seq_start}, {seq_stop}, {self.sum_diff}, {self.inCalibration}, {self.calib_target}")
 
-    def __findDSFit(self):
-        for i in range(len(self.dataset_fit)):
-            delta = abs(abs(self.sum_diff) - self.dataset_fit[i][0])
-            if (delta < 0.2 * self.dataset_fit[i][0]):
+    def __isLastWeightRemoved(self):
+        if self.last_weight[0] > 0:
+            delta = abs(abs(self.sum_diff) - self.last_weight[0])
+            if (delta < self.cfg["error_tor"] * self.last_weight[0]):
                 if self.dbg:
-                    print(f"close to sth in the table")
+                    print(f"seems last weight removed")
                 return True
         return False
 
@@ -234,6 +248,7 @@ class AlgoPressureToWeight:
                     self.settle_hold_cnt = 0
                     if -1 == self.idx_start:
                         self.idx_start = len_p - 1
+                        self.idx_stop = len_p - 1
                         self.sum_diff = diff
                         if self.dbg:
                             print(f'ev_start: {seq}, {val}, {self.cfg["thres_n"] * self.std_dev}')
