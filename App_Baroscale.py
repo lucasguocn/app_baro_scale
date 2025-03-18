@@ -54,6 +54,8 @@ class App_BaroScale:
             timestamp = datetime.now().strftime("%Y-%m-%d %H-%M-%S.%f")[:-3]
             log_file_name = f"{timestamp}-{self.config['board_name']}.csv"
             self.log_file = open(log_file_name, "w")
+            header = f"evt#, sensor, timestamp, in Calibration, Calibration Target, cnt, value"
+            self.log_file.write(header + "\n")
     def __tear_down(self):
         if self.log_file:
             self.log_file.close()
@@ -102,15 +104,15 @@ class App_BaroScale:
             if (sid == 129):
                 value_baro = value * 0.0078125
                 sensor_name = self.config["sensor_name"]
-                formatted_data = f"{self.evCnt}, {sensor_name}, {timestamp_str}, {self.inCalibration}, {self.calib_target}, {self.evCnt}, {value_baro:.2f}"
+                formatted_data = f"{self.evCnt}, {sensor_name}, {timestamp_str}, {self.inCalibration}, {self.calib_target}, {self.evCnt}, {value_baro:.2f}" + "\n"
 
         self.algoPTW.updateData('p', value_baro, timestamp, self.evCnt)
 
         if self.config["print_raw_data"]:
-            print(formatted_data)
+            print(formatted_data, end="")
 
         if self.log_file:
-            self.log_file.write(formatted_data + "\n")
+            self.log_file.write(formatted_data)
             self.log_file.flush()
 
         if (self.config.get("publish_raw_ata", True)):
